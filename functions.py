@@ -82,14 +82,41 @@ def basic_wrangling(df):
 
   return df
 
-def bin_categories(df):
+def bin_categories(df, pct=0.05, min_records=1):
   import pandas as pd
 
-  # Bin categories only in categorical columns that make up less than 5% of the data into a new category called 'Other'
+  # pct: threshold (e.g. 0.05 = 5%). Categories below this share are "small".
+  # min_records: when every group is below pct, avoid binning if each group has at least this many records.
   for col in df.columns:
     if not pd.api.types.is_numeric_dtype(df[col]):
-      value_counts = df[col].value_counts() / df.shape[0]
-      less_than_5_percent = value_counts[value_counts < 0.05]
-      df.loc[df[col].isin(less_than_5_percent.index), col] = 'Other'
+      total = df.shape[0]
+      value_counts = df[col].value_counts()
+      value_pcts = value_counts / total
+
+      small_mask = value_pcts < pct
+      small_cats = value_pcts[small_mask]
+      if len(small_cats) == 0:
+        continue
+
+      # If every group is below pct, avoid binning entirely as long as each group has at least min_records
+      if len(small_cats) == len(value_counts):
+        if (value_counts >= min_records).all():
+          continue
+
+      # Only bin categories that are BOTH below pct AND have fewer than min_records
+      small_cat_names = [
+        c for c in small_cats.index
+        if value_counts[c] < min_records
+      ]
+      if len(small_cat_names) == 0:
+        continue
+
+      df = df.copy()
+      df.loc[df[col].isin(small_cat_names), col] = "Other"
+
+      # If the new 'Other' bin doesn't make up pct of the dataset, drop those rows
+      other_pct = (df[col] == "Other").sum() / len(df)
+      if other_pct < pct:
+        df = df[df[col] != "Other"].copy()
 
   return df
