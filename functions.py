@@ -120,3 +120,52 @@ def bin_categories(df, pct=0.05, min_records=1):
         df = df[df[col] != "Other"].copy()
 
   return df
+
+
+def manage_dates(df, drop_original=False, startdate=None, enddate=None):
+  import pandas as pd
+  import warnings
+
+  df = df.copy()
+  date_cols_to_drop = []
+
+  for col in df.columns:
+    # Only process columns that are already date/datetime (or object strings), never numeric
+    if pd.api.types.is_datetime64_any_dtype(df[col]):
+      ser = df[col]
+    elif pd.api.types.is_numeric_dtype(df[col]):
+      continue  # Do not interpret numbers (e.g. year, id) as dates
+    else:
+      # Object/string: try to parse as datetime; skip if not actually date-like
+      with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        ser = pd.to_datetime(df[col], errors="coerce")
+      if ser.isna().all():
+        continue
+      df[col] = ser
+
+    prefix = f"{col}_"
+    df[prefix + "day"] = df[col].dt.day
+    df[prefix + "month"] = df[col].dt.month
+    df[prefix + "year"] = df[col].dt.year
+    df[prefix + "weekday"] = df[col].dt.weekday
+
+    # Add hour only if time component is present (any non-midnight time)
+    has_time = (df[col].dt.hour != 0) | (df[col].dt.minute != 0) | (df[col].dt.second != 0)
+    if has_time.any():
+      df[prefix + "hour"] = df[col].dt.hour
+
+    if startdate is not None:
+      ref = pd.to_datetime(startdate)
+      df[prefix + "days_since_start"] = (df[col] - ref).dt.days
+    if enddate is not None:
+      ref = pd.to_datetime(enddate)
+      df[prefix + "days_until_end"] = (ref - df[col]).dt.days
+
+    if drop_original:
+      date_cols_to_drop.append(col)
+
+  if date_cols_to_drop:
+    df = df.drop(columns=date_cols_to_drop)
+
+  return df
